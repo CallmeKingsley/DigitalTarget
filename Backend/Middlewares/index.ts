@@ -4,13 +4,8 @@ import RedisStore from 'rate-limit-redis';
 import { rateLimit } from 'express-rate-limit'
 import { createClient } from 'redis';
 
-
-const redisClient = createClient({
-  socket: {
-    host: 'localhost', // or your Redis host
-    port: 6379,
-  }
-});
+const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+const redisClient = createClient({ url: REDIS_URL });
 redisClient.connect().catch(console.error);
 
 //this keys should be place in the .env file for security
@@ -38,15 +33,14 @@ const getStationInfoMiddleWare = async (_req: Request,  _res: Response, next: Ne
     const { code} = _req.body
     const API_URL = `http://api.wmata.com/StationPrediction.svc/json/GetPrediction/${code}`;
 
-     const cached = await redisClient.get(`stationCode:${code}`);
-     
+    const cached = await redisClient.get(`stationCode:${code}`);
     try {
       if (cached) {
          _req.body.StationInfo = {data: JSON.parse(cached), error: false}
+          next()
       }else{
         fetchWithApiKey(API_URL, API_KEY, 'GET')
         .then((data) => {
-            console.log('data =>', data)
             _req.body.StationInfo ={data: data, error: false}
             redisClient.setEx(`stationCode:${code}`, 1000, JSON.stringify(data));
         })
@@ -61,9 +55,10 @@ const getStationInfoMiddleWare = async (_req: Request,  _res: Response, next: Ne
     }
 }
 
+
 const RateLimiting = rateLimit({
 	windowMs: 15 * 60 * 1000, // 15 minutes
-	limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
+	limit: 10, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
 	standardHeaders: 'draft-8', // draft-6: `RateLimit-*` headers; draft-7 & draft-8: combined `RateLimit` header
 	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
 	store: new RedisStore({
